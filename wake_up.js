@@ -331,16 +331,23 @@ function parseTimelineTimestamp(value) {
 
 function getLastUserTime(messages) {
   const reversed = [...messages].reverse();
+
   for (const msg of reversed) {
     if (msg.role === "user") {
       const content = normalizeContentToText(msg.content);
-      // 批注 2026-07-15：兼容 Kelivo 时间前缀 "YYYY-MM-DDHH:mm"；
-      // 旧的 "YYYY-MM-DD HH:mm" 仍然可用，避免无空格时间导致 wake-up 误判没有用户时间。
       const parsed = parseTimelineTimestamp(content);
       if (parsed) return parsed;
     }
   }
-  return null;
+
+  // Kelivo 没有把消息时间写进正文时，
+  // 使用聊天时间线文件最后更新时间作为备用时间
+  try {
+    return fs.statSync(TIMELINE_PATH).mtime;
+  } catch (err) {
+    console.log("无法读取时间线文件更新时间:", err.message);
+    return null;
+  }
 }
 
 function stripPosition(messages) {

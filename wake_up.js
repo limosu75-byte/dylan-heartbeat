@@ -542,7 +542,11 @@ ${historyText}`
       barkText = barkText.replace(/^\[BARK\]\s*/, "").trim();
       barkText = barkText.replace(/\s*\[\/BARK\]$/, "").trim();
     }
-
+// Bark 通知中移除 details / summary 折叠内容
+barkText = barkText
+  .replace(/<details\b[^>]*>[\s\S]*?<\/details>/gi, "")
+  .replace(/<\/?(?:details|summary)\b[^>]*>/gi, "")
+  .trim();
     // 清洗“标题：”、“正文：”前缀（如果有）
     barkText = barkText
       .replace(/^标题[：:]\s*/gm, "")

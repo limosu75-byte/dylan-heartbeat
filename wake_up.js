@@ -465,7 +465,49 @@ async function runWakeUp() {
 ${historyText}`
     }
   ];
+  // 读取最近的手机 App 使用记录
+  try {
+    if (process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY) {
+      const activityResponse = await fetch(
+        `${process.env.SUPABASE_URL}/rest/v1/phone_activity?select=app_name,opened_at&order=opened_at.desc&limit=10`,
+        {
+          headers: {
+            apikey: process.env.SUPABASE_SECRET_KEY
+          }
+        }
+      );
 
+      if (activityResponse.ok) {
+        const activities = await activityResponse.json();
+
+        if (activities.length > 0) {
+          const activityText = activities
+            .map(item => {
+              const time = new Date(item.opened_at).toLocaleString("zh-HK", {
+                timeZone: "Asia/Hong_Kong",
+                hour12: false
+              });
+              return `${time} 打開了 ${item.app_name}`;
+            })
+            .join("\n");
+
+          wakeMessages.push({
+            role: "user",
+            content: `以下是用户最近的手机 App 打开记录。
+这些记录来自用户主动授权的手机自动化，可以作为你判断是否主动联系用户的参考。
+不要假装你看到了屏幕内容；你只知道用户打开过哪些 App 和时间。
+
+最近 App 记录：
+${activityText}`
+          });
+        }
+      } else {
+        console.log("读取手机使用记录失败：", activityResponse.status);
+      }
+    }
+  } catch (error) {
+    console.log("读取手机使用记录出错：", error.message);
+  }
   // 批注 2026-07-15：wake-up prompt 会包含最近聊天记录；
   // 默认日志只写摘要，避免公开部署时把完整上下文刷进 pm2 日志。
   console.log("\n===== WAKE MESSAGES SUMMARY =====\n");

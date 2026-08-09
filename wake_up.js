@@ -411,10 +411,60 @@ async function runWakeUp() {
 
   const now = new Date();
   const diffMinutes = Math.floor((now - lastUserTime) / 1000 / 60);
+  // 检查是否有新的手机 App 活动
+  let recentPhoneActivity = null;
 
-  if (!shouldWake(lastUserTime)) {
+  try {
+    if (process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY) {
+      const activityCheckResponse = await fetch(
+        `${process.env.SUPABASE_URL}/rest/v1/phone_activity?select=id,app_name,opened_at&order=opened_at.desc&limit=1`,
+        {
+          headers: {
+            apikey: process.env.SUPABASE_SECRET_KEY
+          }
+        }
+      );
+
+      if (activityCheckResponse.ok) {
+        const activityRows = await activityCheckResponse.json();
+        const latestActivity = activityRows[0];
+
+        if (latestActivity && latestActivity.opened_at) {
+          const activityAgeMinutes =
+            (now - new Date(latestActivity.opened_at)) / 60000;
+
+          const isRecent =
+            activityAgeMinutes >= 0 && activityAgeMinutes <= 120;
+
+          const isNew =
+            String(globalThis.__lastPhoneActivityId || "") !==
+            String(latestActivity.id);
+
+          if (isRecent && isNew) {
+            recentPhoneActivity = latestActivity;
+          }
+        }
+      } else {
+        console.log(
+          "检查手机 App 活动失败：",
+          activityCheckResponse.status
+        );
+      }
+    }
+  } catch (error) {
+    console.log("检查手机 App 活动出错：", error.message);
+  }
+    if (!shouldWake(lastUserTime) && !recentPhoneActivity) {
     console.log("\n暂不需要唤醒\n");
     return;
+  }
+
+  if (recentPhoneActivity) {
+    globalThis.__lastPhoneActivityId = recentPhoneActivity.id;
+
+    console.log(
+      `检测到新的手机 App 活动：${recentPhoneActivity.app_name}，继续自动唤醒`
+    );
   }
 
   const weatherContext = await fetchWeatherContext();

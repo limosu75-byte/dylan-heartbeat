@@ -413,6 +413,45 @@ async function runWakeUp() {
   }
 
   const now = new Date();
+    // ===== 省额度模式：每天只允许早晚各一次 =====
+  const timeParts = getDatePartsInTimeZone(now, TIME_ZONE);
+  const todayKey = `${timeParts.year}-${timeParts.month}-${timeParts.day}`;
+  const currentHour = Number(timeParts.hour);
+
+  // 早上 10:00-12:00；晚上 20:00-24:00
+  const wakeSlot =
+    currentHour >= 10 && currentHour < 12
+      ? "morning"
+      : currentHour >= 20 && currentHour < 24
+        ? "evening"
+        : null;
+
+  // 其他时间直接结束，不调用模型
+  if (!wakeSlot) {
+    console.log("当前不在早晚推送窗口，跳过模型调用");
+    return;
+  }
+
+  const wakeSlotStatePath = path.join(__dirname, ".wake_slot_state.json");
+  let wakeSlotState = {};
+
+  try {
+    if (fs.existsSync(wakeSlotStatePath)) {
+      wakeSlotState =
+        JSON.parse(fs.readFileSync(wakeSlotStatePath, "utf-8")) || {};
+    }
+  } catch (error) {
+    wakeSlotState = {};
+  }
+
+  // 今天这个时段已经调用过，就不再调用
+  if (
+    wakeSlotState.date === todayKey &&
+    wakeSlotState[wakeSlot] === true
+  ) {
+    console.log(`今天 ${wakeSlot} 已经执行过，跳过模型调用`);
+    return;
+  }
   const diffMinutes = Math.floor((now - lastUserTime) / 1000 / 60);
   // 检查是否有新的手机 App 活动
   let recentPhoneActivity = null;
@@ -457,19 +496,35 @@ async function runWakeUp() {
   } catch (error) {
     console.log("检查手机 App 活动出错：", error.message);
   }
-    if (!shouldWake(lastUserTime) && !recentPhoneActivity) {
+    
+  // 只有正常达到唤醒等待时间时才继续。
+  // 手机 App 活动不再允许绕过等待时间触发模型。
+  if (!shouldWake(lastUserTime)) {
     console.log("\n暂不需要唤醒\n");
     return;
   }
 
+  // 手机 App 活动只做记录，不再作为额外唤醒触发条件
   if (recentPhoneActivity) {
     globalThis.__lastPhoneActivityId = recentPhoneActivity.id;
-
     console.log(
-      `检测到新的手机 App 活动：${recentPhoneActivity.app_name}，继续自动唤醒`
+      `检测到新的手机 App 活动：${recentPhoneActivity.app_name}，仅记录，不额外触发唤醒`
     );
   }
 
+  // 记录今天这个时段已经使用过一次
+  const nextWakeSlotState =
+    wakeSlotState.date === todayKey
+      ? wakeSlotState
+      : { date: todayKey };
+
+  nextWakeSlotState[wakeSlot] = true;
+
+  fs.writeFileSync(
+    wakeSlotStatePath,
+    JSON.stringify(nextWakeSlotState, null, 2),
+    "utf-8"
+  );
   const weatherContext = await fetchWeatherContext();
   const wakePrompt = buildWakePrompt(getChinaTimeString(), diffMinutes, weatherContext);
   const cleanMessages = stripPosition(messages);
